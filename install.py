@@ -1,7 +1,6 @@
 ﻿import os
 import subprocess
 import sys
-import torch
 
 def install_requirements():
     """ Installs necessary Python packages """
@@ -14,6 +13,7 @@ def convert_tf_to_pytorch():
     weights_dir = os.path.join(current_dir, "inference", "transnetv2-weights")
     tf_model_path = os.path.join(weights_dir, "saved_model.pb")
     pytorch_weights_path = os.path.join(weights_dir, "transnetv2-pytorch-weights.pth")
+    convert_script = os.path.join(current_dir, "inference-pytorch", "convert_weights.py")
 
     if os.path.exists(pytorch_weights_path):
         print("✅ PyTorch weights already exist. Skipping conversion.")
@@ -23,16 +23,18 @@ def convert_tf_to_pytorch():
         print(f"❌ TensorFlow weights not found at {tf_model_path}. Cannot convert.")
         return
 
-    print("🔄 Converting TensorFlow weights to PyTorch...")
-
-    convert_script = os.path.join(current_dir, "inference-pytorch", "convert_weights.py")
-
     if not os.path.exists(convert_script):
         print(f"❌ Conversion script not found at {convert_script}. Make sure it exists.")
         return
 
+    print("🔄 Converting TensorFlow weights to PyTorch...")
+
+    # Modify environment so convert_weights.py finds transnetv2_pytorch.py
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{os.path.join(current_dir, 'inference-pytorch')}{os.pathsep}{env.get('PYTHONPATH', '')}"
+
     try:
-        subprocess.check_call([sys.executable, convert_script, "--tf_weights", weights_dir])
+        subprocess.check_call([sys.executable, convert_script, "--tf_weights", weights_dir], env=env)
         print("✅ Conversion successful. PyTorch weights saved.")
     except subprocess.CalledProcessError as e:
         print(f"❌ Conversion failed: {e}")
