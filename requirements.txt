@@ -1,4 +1,5 @@
-tensorflow==2.11.0
+torch
+torchvision
 numpy
 opencv-python
-tqdm
+moviepy

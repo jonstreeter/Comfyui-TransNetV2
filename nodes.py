@@ -1,13 +1,21 @@
 import os
 import sys
+import torch
+import importlib.util
+from moviepy.editor import VideoFileClip
 
-# Ensure TransNetV2 can be imported from root directory
+# Explicitly load the correct PyTorch TransNetV2 module
 current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(current_dir)
+transnet_module_path = os.path.join(current_dir, "inference-pytorch", "transnetv2_pytorch.py")
 
-from transnetv2 import TransNetV2
-from transnetv2_utils import draw_video_with_predictions, scenes_from_predictions
-import tensorflow as tf
+if not os.path.exists(transnet_module_path):
+    raise FileNotFoundError(f"Could not find {transnet_module_path}, ensure it exists!")
+
+spec = importlib.util.spec_from_file_location("transnetv2_pytorch", transnet_module_path)
+transnet_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(transnet_module)
+
+TransNetV2 = transnet_module.TransNetV2
 
 class TransNetV2Node:
     @classmethod
@@ -31,27 +39,30 @@ class TransNetV2Node:
 
         os.makedirs(output_folder, exist_ok=True)
 
-        # Initialize TransNetV2 model
-        model = TransNetV2()
+        # Ensure weights path is correctly set to lowercase folder name
+        weights_path = os.path.join(current_dir, "inference", "transnetv2-weights")
+
+        # Initialize PyTorch TransNetV2 model
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = TransNetV2(weights_path=weights_path).to(device)
 
         # Predict shot boundaries
-        video_frames, single_frame_predictions, all_frame_predictions = model.predict_video(video_path)
-        scenes = scenes_from_predictions(single_frame_predictions, threshold=threshold)
+        predictions, fps = model.predict_video(video_path)
+        scenes = model.predictions_to_scenes(predictions, threshold=threshold)
 
         if output_type == "timecodes":
             timecodes = "Detected Scenes:\n"
             for i, (start, end) in enumerate(scenes):
-                start_sec = start / model.frame_rate
-                end_sec = end / model.frame_rate
+                start_sec = start / fps
+                end_sec = end / fps
                 timecodes += f"Scene {i+1}: {start_sec:.2f}s to {end_sec:.2f}s\n"
             return (timecodes,)
 
         elif output_type == "split_videos":
-            from moviepy.editor import VideoFileClip
             clip = VideoFileClip(video_path)
             for i, (start, end) in enumerate(scenes):
-                start_sec = start / model.frame_rate
-                end_sec = end / model.frame_rate
+                start_sec = start / fps
+                end_sec = end / fps
                 subclip = clip.subclip(start_sec, end_sec)
                 output_file = os.path.join(output_folder, f"scene_{i+1:03d}.mp4")
                 subclip.write_videofile(output_file, codec="libx264")
